@@ -100,6 +100,7 @@ select.btn option { color: #111; }
     <h1>Filter-Detektiv</h1>
     <p>Stellen Sie sich vor, Sie posten dieses Foto gleich in Ihre Story. Swipen Sie durch die Filter und finden Sie heraus, welche Operation aus der Vorlesung dahintersteckt.</p>
     <p>Swipen oder <kbd>←</kbd> <kbd>→</kbd> · <kbd>H</kbd> Histogramm · <kbd>Leertaste</kbd> halten = vorher · <kbd>Enter</kbd> Auflösung</p>
+    <p>Oben rechts wechseln Sie zwischen <b>Rätsel</b>, <b>Quiz</b> (zufälliger Filter, vier Antworten, Punkte zählen) und <b>Lösungen</b>. Bei „Mayrhofen“ tippen Sie ins Bild, um den Seed zu setzen.</p>
     <p>Ihr Foto bleibt auf Ihrem Gerät. Es wird nichts hochgeladen.</p>
   </aside>
 
@@ -108,7 +109,7 @@ select.btn option { color: #111; }
     <div class="top">
       <label class="btn" for="file">Eigenes Foto<input id="file" type="file" accept="image/*" hidden></label>
       <select class="btn" id="sample" aria-label="Beispielbild"></select>
-      <button class="btn" id="mode" aria-pressed="true" title="Rätsel-Modus: Auflösung erst auf Knopfdruck">Rätsel</button>
+      <button class="btn" id="mode" aria-pressed="true" title="Modus wechseln: Rätsel, Quiz, Lösungen">Rätsel</button>
     </div>
     <div class="hist" id="hist" hidden><canvas id="hc"></canvas><div class="leg">vorher · <b>nachher</b></div></div>
     <div class="name" id="name"></div>
@@ -187,23 +188,23 @@ const FILTER = [
   { name: "Innsbruck", op: "Fade (Tonwertkurve)", vl: "VL 3 · Punktoperation",
     text: "Jedes Pixel wird für sich umgerechnet. Schwarz wird zu dunklem Grau, der Kontrast sinkt: der Matte-Look.",
     formel: "s = 0,7 · r + c  (Stauchung + Verschiebung)", app: "Instagram „Fade“ · Lightroom Gradationskurve, linken Endpunkt anheben",
-    p: { key: "c", min: 0, max: 120, step: 1, val: 60 },
+    p: { key: "c", min: 0, max: 120, step: 1, val: 60, quiz: [[40, 100]] },
     run: (s, w, h, b) => { const o = new Uint8ClampedArray(s.length); for (let i = 0; i < s.length; i++) o[i] = i % 4 === 3 ? 255 : b + 0.7 * s[i]; return o; } },
   { name: "Kufstein", op: "Skizze (Sobel + Negativ)", vl: "VL 6 + VL 3",
     text: "Der Gradientenbetrag G ist an Kanten groß. Das Negativ macht Kanten dunkel und flache Flächen weiß.",
     formel: "G = √(Gx² + Gy²),  s = (L−1) − f · G", app: "Skizzenfilter · Photoshop „Konturen finden“",
-    p: { key: "f", min: 0.3, max: 3, step: 0.1, val: 1 },
+    p: { key: "f", min: 0.3, max: 3, step: 0.1, val: 1, quiz: [[0.8, 1.8]] },
     run: (s, w, h, f) => { const G = cache("G", () => sobelG(s, w, h)), o = new Uint8ClampedArray(s.length);
       for (let i = 0; i < w*h; i++) { const v = 255 - f * G[i]; o[4*i] = o[4*i+1] = o[4*i+2] = v; o[4*i+3] = 255; } return o; } },
   { name: "Lienz", op: "Pop-Art (k-Means)", vl: "VL 8 · Clustering",
     text: "Jedes Pixel ist ein Punkt z = (R, G, B). k-Means teilt alle Pixel in k Cluster, jedes Pixel bekommt die Farbe seines Centroids.",
     formel: "z = (R, G, B) → nächster Centroid mᵢ", app: "Pop-Art- und Poster-Filter (Farbreduktion)",
-    p: { key: "k", min: 2, max: 8, step: 1, val: 4 },
+    p: { key: "k", min: 2, max: 8, step: 1, val: 4, quiz: [[3, 6]] },
     run: (s, w, h, k) => cache("km" + k, () => kmeans(s, k)) },
   { name: "Schwaz", op: "Weichzeichner (Gauß)", vl: "VL 4 · Faltung",
     text: "Jedes Pixel wird durch einen gewichteten Mittelwert seiner Nachbarn ersetzt. Rauschen verschwindet, feine Details aber auch.",
     formel: "g = Gauß_σ ∗ f", app: "Rauschreduzierung, Weichzeichner, Tilt-Shift",
-    p: { key: "σ", min: 0.5, max: 8, step: 0.5, val: 2 },
+    p: { key: "σ", min: 0.5, max: 8, step: 0.5, val: 2, quiz: [[2, 5]] },
     run: (s, w, h, sg) => cache("blur" + sg, () => { const c = channels(s); return toRGBA(c.map(ch => blur1(ch, w, h, sg)), w*h); }) },
   { name: "Hall", op: "Histogrammausgleich", vl: "VL 3 · Histogramm",
     text: "Das kumulierte Histogramm dient als Tonwertkurve. Die Helligkeiten werden über 0 … 255 verteilt, kleine Unterschiede werden größer.",
@@ -216,7 +217,7 @@ const FILTER = [
   { name: "Imst", op: "Schärfen (Unsharp Masking)", vl: "VL 4 · Faltung",
     text: "Detailbild = Original minus geglättetes Bild. Mit Faktor k verstärkt wieder addiert, werden Kanten betont.",
     formel: "g = f + k · (f − Gauß(f))", app: "Schärfen, Struktur, Textur, Klarheit",
-    p: { key: "k", min: 0, max: 5, step: 0.1, val: 1.5 },
+    p: { key: "k", min: 0, max: 5, step: 0.1, val: 1.5, quiz: [[1.5, 3]] },
     run: (s, w, h, k) => { const b = cache("blur3", () => { const c = channels(s); return toRGBA(c.map(ch => blur1(ch, w, h, 3)), w*h); });
       const o = new Uint8ClampedArray(s.length); for (let i = 0; i < s.length; i++) o[i] = i % 4 === 3 ? 255 : s[i] + k * (s[i] - b[i]); return o; } },
   { name: "Reutte", op: "Himmel ersetzen (Schwellwert)", vl: "VL 5 · Segmentierung",
@@ -233,20 +234,61 @@ const FILTER = [
   { name: "Kitzbühel", op: "Vignette", vl: "VL 3 (ortsabhängig)",
     text: "Die Helligkeit wird zum Rand hin abgesenkt. Der Faktor hängt vom Ort des Pixels ab, streng genommen ist das deshalb keine Punktoperation.",
     formel: "s = r · (1 − a · d²),  d = Abstand zur Mitte (0 … 1)", app: "Vignette",
-    p: { key: "a", min: 0, max: 1, step: 0.05, val: 0.6 },
+    p: { key: "a", min: 0, max: 1, step: 0.05, val: 0.6, quiz: [[0.6, 1]] },
     run: (s, w, h, a) => { const o = new Uint8ClampedArray(s.length), cx = w/2, cy = h/2, dm = Math.hypot(cx, cy);
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y*w + x, d = Math.hypot(x-cx, y-cy) / dm, f = 1 - a*d*d;
         o[4*i] = s[4*i] * f; o[4*i+1] = s[4*i+1] * f; o[4*i+2] = s[4*i+2] * f; o[4*i+3] = 255; } return o; } },
   { name: "Landeck", op: "Comic (k-Means + Kanten)", vl: "VL 8 + VL 6 + VL 5",
     text: "Pop-Art mit k = 4 Farben, dazu werden alle Pixel mit großem Gradientenbetrag G > t schwarz.",
     formel: "Pop-Art,  Pixel mit G > t → 0", app: "Comic- und Cartoon-Filter",
-    p: { key: "t", min: 20, max: 300, step: 5, val: 100 },
+    p: { key: "t", min: 20, max: 300, step: 5, val: 100, quiz: [[70, 140]] },
     run: (s, w, h, t) => { const p = cache("km4", () => kmeans(s, 4)), G = cache("G", () => sobelG(s, w, h)), o = new Uint8ClampedArray(p);
       for (let i = 0; i < w*h; i++) if (G[i] > t) { o[4*i] = o[4*i+1] = o[4*i+2] = 0; } return o; } },
+  { name: "Seefeld", op: "Gamma-Korrektur", vl: "VL 3 · Punktoperation",
+    text: "Eine gekrümmte Kennlinie: γ < 1 hellt die dunklen Bereiche stark auf, γ > 1 dunkelt die Mitteltöne ab. Schwarz und Weiß bleiben, wo sie sind.",
+    formel: "s = c · r^γ,  c = (L−1)^(1−γ)", app: "Lightroom „Tiefen“ bzw. Gradationskurve in der Mitte ziehen · Instagram „Schatten“",
+    p: { key: "γ", min: 0.2, max: 3, step: 0.05, val: 0.5, quiz: [[0.35, 0.6], [1.8, 2.6]] },
+    run: (s, w, h, g) => { const T = new Uint8ClampedArray(L); for (let r = 0; r < L; r++) T[r] = Math.round((L-1) ** (1-g) * r ** g);
+      const o = new Uint8ClampedArray(s.length); for (let i = 0; i < s.length; i++) o[i] = i % 4 === 3 ? 255 : T[s[i]]; return o; } },
+  { name: "Sölden", op: "Mosaik (Abtastung + Interpolation)", vl: "VL 1 + VL 2",
+    text: "Nur jedes n-te Pixel wird abgetastet, als hätte die Kamera viel weniger Pixel. Beim Vergrößern füllt Nearest Neighbour jeden Block mit dem nächsten Abtastwert (Mosaik), bilinear wird dazwischen weich interpoliert.",
+    formel: "Abtastabstand n,  Vergrößern: Nearest Neighbour oder bilinear", app: "Mosaik-/Pixel-Filter, Gesichter verpixeln · Pinch-Zoom in der Galerie",
+    p: { key: "n", min: 2, max: 40, step: 1, val: 14, quiz: [[10, 24]] }, opt: { label: "Interpolation", werte: ["Nearest Neighbour", "bilinear"] },
+    run: (s, w, h, n, opt) => { const sw = Math.ceil(w / n), sh = Math.ceil(h / n), A = new Float32Array(sw * sh * 3);
+      for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) { const x = Math.min(w-1, i*n + (n >> 1)), y = Math.min(h-1, j*n + (n >> 1));
+        for (let c = 0; c < 3; c++) A[3*(j*sw+i)+c] = s[4*(y*w+x)+c]; }
+      const o = new Uint8ClampedArray(s.length), bil = opt === 1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const q = 4*(y*w+x); o[q+3] = 255;
+        if (!bil) { const k = 3*(Math.floor(y/n)*sw + Math.floor(x/n)); o[q] = A[k]; o[q+1] = A[k+1]; o[q+2] = A[k+2]; continue; }
+        const u = Math.min(sw-1, Math.max(0, (x - (n >> 1)) / n)), v = Math.min(sh-1, Math.max(0, (y - (n >> 1)) / n));
+        const i0 = Math.floor(u), j0 = Math.floor(v), i1 = Math.min(sw-1, i0+1), j1 = Math.min(sh-1, j0+1), a = u - i0, b = v - j0;
+        for (let c = 0; c < 3; c++) o[q+c] = (1-a)*(1-b)*A[3*(j0*sw+i0)+c] + a*(1-b)*A[3*(j0*sw+i1)+c] + (1-a)*b*A[3*(j1*sw+i0)+c] + a*b*A[3*(j1*sw+i1)+c]; }
+      return o; } },
+  { name: "Mayrhofen", op: "Zauberstab (Region Growing)", vl: "VL 7 · Regionen",
+    text: "Tippen Sie ins Bild: Dort liegt der Seed. Die Region wächst über die 8er-Nachbarschaft, solange sich der Grauwert um höchstens t vom Seed unterscheidet. Alles außerhalb wird grau. Ist t zu groß, läuft die Region aus.",
+    formel: "Pixel p kommt dazu, wenn |r_p − r_Seed| ≤ t  (8er-Nachbarschaft)", app: "Lightroom „Bereich auswählen“ · Photoshop „Zauberstab“ · Color-Splash-Filter",
+    p: { key: "t", min: 2, max: 80, step: 1, val: 20, quiz: [[15, 30]] },
+    run: (s, w, h, t) => { const g = cache("gray1", () => blur1(gray(s), w, h, 1)), sx = Math.round(st.seed[0] * (w-1)), sy = Math.round(st.seed[1] * (h-1));
+      const r0 = g[sy*w+sx], in_ = new Uint8Array(w*h), stack = [sy*w+sx]; in_[sy*w+sx] = 1;
+      while (stack.length) { const p = stack.pop(), x = p % w, y = (p - x) / w;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x+dx, yy = y+dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const q = yy*w+xx; if (!in_[q] && Math.abs(g[q] - r0) <= t) { in_[q] = 1; stack.push(q); } } }
+      const o = new Uint8ClampedArray(s.length);
+      for (let i = 0; i < w*h; i++) { if (in_[i]) { o[4*i] = s[4*i]; o[4*i+1] = s[4*i+1]; o[4*i+2] = s[4*i+2]; }
+        else { const v = 0.6 * (0.299*s[4*i] + 0.587*s[4*i+1] + 0.114*s[4*i+2]); o[4*i] = o[4*i+1] = o[4*i+2] = v; } o[4*i+3] = 255; }
+      for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) { const d = Math.hypot(dx, dy), x = sx+dx, y = sy+dy;   // Seed markieren
+        if (d > 4 && d < 6.5 && x >= 0 && y >= 0 && x < w && y < h) { const q = 4*(y*w+x); o[q] = 255; o[q+1] = 60; o[q+2] = 60; } }
+      return o; } },
 ];
 
 /* ---------- Zustand ---------- */
-const st = { idx: 0, src: null, w: 0, h: 0, raetsel: true, showHist: false, vorher: false, sheet: false, aufgeloest: new Set(), param: {} };
+const MODI = ["Rätsel", "Quiz", "Lösungen"];
+const st = { idx: 0, src: null, w: 0, h: 0, modus: 0, showHist: false, vorher: false, sheet: false, aufgeloest: new Set(), param: {}, opt: {},
+  seed: [0.5, 0.5], eigenes: false, sample: 0, rect: null,
+  q: { nr: 0, idx: 1, param: 0, opt: 0, wahl: null, antworten: [], punkte: 0 } };
+const quiz = () => st.modus === 1;
+const parOf = f => quiz() ? st.q.param : st.param[f.name];
+const optOf = f => quiz() ? st.q.opt : (st.opt[f.name] ?? 0);
 let memo = {};
 function cache(k, f) { return memo[k] ??= f(); }
 
@@ -255,17 +297,18 @@ const view = $("view"), vctx = view.getContext("2d");
 const work = document.createElement("canvas"), wctx = work.getContext("2d", { willReadFrequently: true });
 const shown = document.createElement("canvas"), sctx = shown.getContext("2d");
 
-function loadImage(url) { const im = new Image(); im.onload = () => {
+function loadImage(url, fertig) { const im = new Image(); im.onload = () => {
     const sc = Math.min(1, 720 / Math.max(im.width, im.height)); st.w = Math.round(im.width * sc); st.h = Math.round(im.height * sc);
     work.width = shown.width = st.w; work.height = shown.height = st.h; wctx.drawImage(im, 0, 0, st.w, st.h);
     st.src = wctx.getImageData(0, 0, st.w, st.h).data; memo = {};
     FILTER.forEach(f => { if (f.p) st.param[f.name] = f.p.val ?? otsu(gray(st.src)); });
-    render(true); };
+    if (fertig) fertig(); else render(true); };
   im.src = url; }
 
 function current() { const f = FILTER[st.idx]; if (!st.src) return null;
-  const key = "out" + st.idx + ":" + (f.p ? st.param[f.name] : "");
-  return cache(key, () => f.run(st.src, st.w, st.h, f.p ? st.param[f.name] : undefined)); }
+  const v = f.p ? parOf(f) : undefined, o = f.opt ? optOf(f) : 0;
+  const key = "out" + st.idx + ":" + v + ":" + o + (f.name === "Mayrhofen" ? ":" + st.seed : "");
+  return cache(key, () => f.run(st.src, st.w, st.h, v, o)); }
 
 function render(newName) {
   if (!st.src) return; const f = FILTER[st.idx], out = st.vorher ? st.src : current();
@@ -280,9 +323,11 @@ function render(newName) {
   vctx.fillStyle = g; vctx.fillRect(0, 0, W, H);
   const sc = Math.min(W / st.w, (H * 0.78) / st.h), dw = st.w * sc, dh = st.h * sc;
   vctx.imageSmoothingQuality = "high"; vctx.drawImage(shown, (W - dw) / 2, (H - dh) / 2, dw, dh);
-  $("dots").innerHTML = FILTER.map((_, i) => `<i class="${i === st.idx ? "on" : ""}"></i>`).join("");
+  st.rect = { x: (W - dw) / 2 / dpr, y: (H - dh) / 2 / dpr, w: dw / dpr, h: dh / dpr };
+  $("dots").innerHTML = quiz() ? "" : FILTER.map((_, i) => `<i class="${i === st.idx ? "on" : ""}"></i>`).join("");
   if (newName) { const nm = $("name"); nm.classList.remove("fade");
-    nm.innerHTML = f.name + (st.vorher ? "<small>vorher</small>" : ""); void nm.offsetWidth; nm.classList.add("fade"); }
+    nm.innerHTML = (quiz() ? `Quiz ${st.q.nr}<small>Welche Operation?</small>` : f.name) + (st.vorher ? "<small>vorher</small>" : "");
+    void nm.offsetWidth; nm.classList.add("fade"); }
   if (st.showHist) drawHist(out);
   if (st.sheet) drawSheet(); }
 
@@ -297,47 +342,93 @@ function drawHist(out) {
   x.fillStyle = "rgba(200,205,215,.55)"; hv.forEach((v, i) => x.fillRect(i*bw, H - v/mx*(H-4), bw - .5, v/mx*(H-4)));
   x.fillStyle = "rgba(244,155,0,.75)"; hn.forEach((v, i) => x.fillRect(i*bw, H - v/mx*(H-4), bw - .5, v/mx*(H-4))); }
 
+function quizSheet() {
+  const f = FILTER[st.idx], sh = $("sheet"), q = st.q, fertig = q.wahl !== null;
+  const knoepfe = q.antworten.map((a, i) => { const ok = FILTER[a].op === f.op;
+    const stil = !fertig ? "" : ok ? "background:#2e9e5b;color:#fff" : i === q.wahl ? "background:#c0392b;color:#fff" : "opacity:.5";
+    return `<button class="btn antwort" data-i="${i}" style="justify-content:flex-start;${stil}" ${fertig ? "disabled" : ""}>${i + 1}  ${FILTER[a].op}</button>`; }).join("");
+  const richtig = fertig && FILTER[q.antworten[q.wahl]].op === f.op;
+  sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
+    <span class="frage">Quiz ${q.nr}: Welche Operation wurde angewendet?</span>
+    <p class="app">Punkte: ${q.punkte} von ${q.nr - (fertig ? 0 : 1)} · Tipp: Histogramm und „Vorher“</p>
+    <div style="display:flex;flex-direction:column;gap:6px">${knoepfe}</div>
+    ${fertig ? `<p><b>${richtig ? "Richtig!" : "Leider nicht."}</b> Das war <b>${f.name} = ${f.op}</b>${f.vl ? ` (${f.vl})` : ""}.</p>
+      <div class="formel">${f.formel}</div>
+      ${f.p ? `<p class="app">Hier mit ${f.p.key} = ${q.param}${f.opt ? ", " + f.opt.werte[q.opt] : ""}</p>` : ""}
+      <button class="btn primary" id="weiter">Nächste Frage ›</button>` : ""}`;
+  sh.querySelectorAll(".antwort").forEach(b => b.onclick = () => antworten(+b.dataset.i));
+  if (fertig) $("weiter").onclick = () => neueFrage();
+  $("x").onclick = () => toggleSheet(false); }
+
+function antworten(i) { const q = st.q; if (q.wahl !== null || i >= q.antworten.length) return;
+  q.wahl = i; if (FILTER[q.antworten[i]].op === FILTER[st.idx].op) q.punkte++; drawSheet(); }
+
+function neueFrage() {
+  const q = st.q, kandidaten = FILTER.map((_, i) => i).filter(i => i > 0 && i !== q.idx);
+  const idx = kandidaten[Math.floor(Math.random() * kandidaten.length)], f = FILTER[idx];
+  const weiter = () => {
+    q.nr++; q.idx = idx; q.wahl = null; st.idx = idx; st.seed = [0.5, 0.5];
+    if (f.p) { if (f.p.val === null) q.param = Math.max(0, Math.min(255, otsu(cache("gray", () => gray(st.src))) + Math.round(Math.random() * 30 - 15)));
+      else { const b = f.p.quiz[Math.floor(Math.random() * f.p.quiz.length)], s = f.p.step;
+        q.param = +(Math.round((b[0] + Math.random() * (b[1] - b[0])) / s) * s).toFixed(2); } }
+    q.opt = f.opt ? Math.floor(Math.random() * f.opt.werte.length) : 0;
+    const andere = [...new Set(FILTER.slice(1).map(g => g.op))].filter(o => o !== f.op).sort(() => Math.random() - 0.5).slice(0, 3);
+    q.antworten = [f.op, ...andere].sort(() => Math.random() - 0.5).map(o => FILTER.findIndex(g => g.op === o));
+    st.sheet = true; $("sheet").hidden = false; render(true); };
+  if (!st.eigenes && SAMPLES.length > 1) { let k; do { k = Math.floor(Math.random() * SAMPLES.length); } while (k === st.sample);
+    st.sample = k; $("sample").value = k; loadImage(SAMPLES[k][1], weiter); } else weiter(); }
+
 function drawSheet() {
-  const f = FILTER[st.idx], sh = $("sheet"), offen = !st.raetsel || st.aufgeloest.has(st.idx) || st.idx === 0;
+  if (quiz()) return quizSheet();
+  const f = FILTER[st.idx], sh = $("sheet"), offen = st.modus === 2 || st.aufgeloest.has(st.idx) || st.idx === 0;
   if (!offen) { sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
       <span class="frage">Filter „${f.name}“: Welche Operation steckt dahinter?</span>
       <p class="app">Tipp: Histogramm einschalten und „Vorher“ gedrückt halten.</p>
       <button class="btn primary" id="aufl">Auflösen</button>`;
     $("aufl").onclick = () => { st.aufgeloest.add(st.idx); drawSheet(); }; }
-  else { const p = f.p, v = p ? st.param[f.name] : null;
+  else { const p = f.p, v = p ? st.param[f.name] : null, op = f.opt;
     sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
       <h2>${f.name} = ${f.op}</h2>${f.vl ? `<span class="vl">${f.vl}</span>` : ""}
       <p>${f.text}</p><div class="formel">${f.formel}</div>
       ${f.app ? `<p class="app">In der App: ${f.app}</p>` : ""}
       ${p ? `<label for="pr"><span>Parameter ${p.key}</span><span id="pv">${v}</span></label>
-      <input type="range" id="pr" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}">` : ""}`;
+      <input type="range" id="pr" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}">` : ""}
+      ${op ? `<div class="row" style="justify-content:flex-start">${op.werte.map((x, i) => `<button class="btn opt" data-i="${i}" aria-pressed="${optOf(f) === i}">${x}</button>`).join("")}</div>` : ""}`;
+    sh.querySelectorAll(".opt").forEach(b => b.onclick = () => { st.opt[f.name] = +b.dataset.i; render(false); });
     if (p) { let raf = 0; $("pr").oninput = e => { st.param[f.name] = +e.target.value; $("pv").textContent = e.target.value;
       cancelAnimationFrame(raf); raf = requestAnimationFrame(() => render(false)); }; } }
   $("x").onclick = () => toggleSheet(false); }
 
 function toggleSheet(on) { st.sheet = on; $("sheet").hidden = !on; if (on) drawSheet(); }
-function go(d) { st.idx = (st.idx + d + FILTER.length) % FILTER.length; render(true); }
+function go(d) { if (quiz()) return neueFrage(); st.idx = (st.idx + d + FILTER.length) % FILTER.length; render(true); }
 
 /* ---------- Bedienung ---------- */
 $("prev").onclick = () => go(-1); $("next").onclick = () => go(1);
 $("info").onclick = () => toggleSheet(!st.sheet);
 $("hbtn").onclick = () => { st.showHist = !st.showHist; $("hbtn").setAttribute("aria-pressed", st.showHist); $("hist").hidden = !st.showHist; render(false); };
-$("mode").onclick = () => { st.raetsel = !st.raetsel; $("mode").setAttribute("aria-pressed", st.raetsel); $("mode").textContent = st.raetsel ? "Rätsel" : "Lösungen"; if (st.sheet) drawSheet(); };
+$("mode").onclick = e => { e.currentTarget.blur(); st.modus = (st.modus + 1) % MODI.length; $("mode").textContent = MODI[st.modus]; $("mode").setAttribute("aria-pressed", st.modus < 2);
+  if (quiz()) { st.q.nr = 0; st.q.punkte = 0; neueFrage(); } else { st.idx = 0; st.sheet = false; $("sheet").hidden = true; render(true); } };
 const hold = on => { st.vorher = on; render(true); };
 $("vorher").addEventListener("pointerdown", e => { e.preventDefault(); hold(true); });
 ["pointerup", "pointerleave", "pointercancel"].forEach(ev => $("vorher").addEventListener(ev, () => st.vorher && hold(false)));
-$("file").onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => loadImage(rd.result); rd.readAsDataURL(f); };
+$("file").onchange = e => { const f = e.target.files[0]; if (!f) return; st.eigenes = true; const rd = new FileReader(); rd.onload = () => loadImage(rd.result); rd.readAsDataURL(f); };
 $("sample").innerHTML = SAMPLES.map((s, i) => `<option value="${i}">${s[0]}</option>`).join("");
-$("sample").onchange = e => loadImage(SAMPLES[+e.target.value][1]);
+$("sample").onchange = e => { st.eigenes = false; st.sample = +e.target.value; loadImage(SAMPLES[st.sample][1]); };
 let sx = null, sy = null;
 $("stage").addEventListener("pointerdown", e => { if (e.target.closest("button, select, label, .sheet, input")) return; sx = e.clientX; sy = e.clientY; });
 $("stage").addEventListener("pointerup", e => { if (sx === null) return; const dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
-  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1); });
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+  else if (Math.abs(dx) < 8 && Math.abs(dy) < 8 && FILTER[st.idx].name === "Mayrhofen" && st.rect && !quiz()) {   // Tippen = Seed setzen
+    const b = $("view").getBoundingClientRect(), u = (e.clientX - b.left - st.rect.x) / st.rect.w, v = (e.clientY - b.top - st.rect.y) / st.rect.h;
+    if (u >= 0 && u <= 1 && v >= 0 && v <= 1) { st.seed = [u, v]; render(false); } } });
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" && e.target.type === "range") return;
+  if (e.key === "Enter" && e.target.closest && e.target.closest("button, select, label")) return;   // Enter auf Knopf = Knopf
+  if (quiz() && st.sheet && "1234".includes(e.key)) return antworten(+e.key - 1);
   if (e.key === "ArrowRight") go(1); else if (e.key === "ArrowLeft") go(-1);
   else if (e.key === "h" || e.key === "H") $("hbtn").click();
-  else if (e.key === "Enter") { if (!st.sheet) toggleSheet(true); else if (!st.aufgeloest.has(st.idx) && st.raetsel) { st.aufgeloest.add(st.idx); drawSheet(); } }
+  else if (e.key === "Enter") { if (!st.sheet) toggleSheet(true); else if (quiz()) { if (st.q.wahl !== null) neueFrage(); }
+    else if (!st.aufgeloest.has(st.idx) && st.modus === 0) { st.aufgeloest.add(st.idx); drawSheet(); } }
   else if (e.key === " " && !e.repeat) { e.preventDefault(); hold(true); } });
 document.addEventListener("keyup", e => { if (e.key === " ") hold(false); });
 window.addEventListener("resize", () => render(false));

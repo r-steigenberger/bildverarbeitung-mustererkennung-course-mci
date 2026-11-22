@@ -90,6 +90,41 @@ def landeck(img, t):                                  # Comic: Pop-Art + schwarz
     return comic
 
 
+def seefeld(img, gamma):                              # Gamma: s = c · r^γ, c = (L−1)^(1−γ)
+    r = np.arange(L)
+    T = np.round((L-1)**(1 - gamma) * r**gamma).astype(np.uint8)   # Kennlinie als Lookup-Table
+    return T[img]
+
+
+def soelden(img, p):                                  # Mosaik: jedes n-te Pixel abtasten, dann vergrößern
+    n, interpolation = p
+    h, w = img.shape[:2]
+    klein = img[n//2::n, n//2::n]                      # Abtastung (VL 1)
+    art = cv2.INTER_NEAREST if interpolation == "Nearest Neighbour" else cv2.INTER_LINEAR
+    return cv2.resize(klein, (w, h), interpolation=art)   # Interpolation (VL 2)
+
+
+def mayrhofen(img, p):                                # Zauberstab: Region Growing ab Seed
+    t, (sx, sy) = p
+    g = cv2.GaussianBlur(grau(img), (0, 0), 1).astype(float)
+    h, w = g.shape
+    seed = (int(sy * (h-1)), int(sx * (w-1)))
+    region = np.zeros((h, w), bool)
+    region[seed] = True
+    liste = [seed]
+    while liste:                                        # Nachbarn prüfen, bis nichts mehr dazukommt
+        y, x = liste.pop()
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):                       # 8er-Nachbarschaft
+                yy, xx = y + dy, x + dx
+                if 0 <= yy < h and 0 <= xx < w and not region[yy, xx] and abs(g[yy, xx] - g[seed]) <= t:
+                    region[yy, xx] = True
+                    liste.append((yy, xx))
+    grauwert = 0.6 * grau(img)
+    neu = np.where(region[:, :, None], img, grauwert[:, :, None])
+    return bild(neu)
+
+
 # Name, Funktion, Operation, VL, Erklärung, Formel (LaTeX), In der App, Parameter (Name, min, max, Start, Schritt)
 FILTER = [
     ("Normal", normal, "Original", "", "Das unbearbeitete Foto. Blättern Sie mit ▶ durch die Filter.", r"s = r", "", None),
@@ -122,6 +157,18 @@ FILTER = [
     ("Landeck", landeck, "Comic (k-Means + Kanten)", "VL 8 + VL 6 + VL 5",
      "Pop-Art mit k = 4 Farben, dazu werden alle Pixel mit großem Gradientenbetrag G > t schwarz.",
      r"G > t \;\rightarrow\; 0", "Comic- und Cartoon-Filter", ("t", 20, 300, 100, 5)),
+    ("Seefeld", seefeld, "Gamma-Korrektur", "VL 3 · Punktoperation",
+     "Eine gekrümmte Kennlinie: γ < 1 hellt die dunklen Bereiche stark auf, γ > 1 dunkelt die Mitteltöne ab.",
+     r"s = c \cdot r^\gamma, \quad c = (L-1)^{1-\gamma}", "Lightroom „Tiefen“ bzw. Gradationskurve in der Mitte ziehen",
+     ("γ", 0.2, 3.0, 0.5, 0.05)),
+    ("Sölden", soelden, "Mosaik (Abtastung + Interpolation)", "VL 1 + VL 2",
+     "Nur jedes n-te Pixel wird abgetastet. Beim Vergrößern füllt Nearest Neighbour jeden Block mit dem nächsten "
+     "Abtastwert (Mosaik), bilinear wird dazwischen weich interpoliert.",
+     r"\text{Abtastabstand } n", "Mosaik-/Pixel-Filter, Pinch-Zoom in der Galerie", ("n", 2, 40, 14, 1)),
+    ("Mayrhofen", mayrhofen, "Zauberstab (Region Growing)", "VL 7 · Regionen",
+     "Ab dem Seed wächst die Region über die 8er-Nachbarschaft, solange sich der Grauwert um höchstens t vom Seed "
+     "unterscheidet. Alles außerhalb wird grau. Den Seed stellen Sie unten ein.",
+     r"|r_p - r_{Seed}| \le t", "Lightroom „Bereich auswählen“, Photoshop „Zauberstab“", ("t", 2, 80, 20, 1)),
 ]
 
 
@@ -190,6 +237,10 @@ if par:
 else:
     p = None
 
+if name == "Sölden":                                   # Zusatzeinstellungen
+    p = (p, st.session_state.get("interp", "Nearest Neighbour"))
+if name == "Mayrhofen":
+    p = (p, (st.session_state.get("sx", 0.5), st.session_state.get("sy", 0.5)))
 ergebnis = anwenden(name, img, p)
 vorher = st.toggle("Vorher zeigen")
 st.image(img if vorher else ergebnis, width="stretch")
@@ -206,6 +257,11 @@ with st.expander(f"Auflösen: Was steckt hinter „{name}“?"):
         st.caption(f"In der App: {app}")
     if par:
         st.slider(f"Parameter {pname}", pmin, pmax, pstart, pstep, key=key)
+    if name == "Sölden":
+        st.radio("Interpolation", ["Nearest Neighbour", "bilinear"], horizontal=True, key="interp")
+    if name == "Mayrhofen":
+        st.slider("Seed x (links → rechts)", 0.0, 1.0, 0.5, 0.01, key="sx")
+        st.slider("Seed y (oben → unten)", 0.0, 1.0, 0.5, 0.01, key="sy")
     st.code(inspect.getsource(funktion), language="python")
 
 st.caption("Bilder: scikit-image (CC0/Public Domain), Earthrise: NASA. Filternamen frei erfunden.")

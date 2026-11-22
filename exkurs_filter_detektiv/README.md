@@ -1,7 +1,8 @@
 # Filter-Detektiv (Streamlit)
 
 Gleiche Filter und Namen wie Foliensatz und Web-App (Innsbruck = Fade, Kufstein = Skizze, Lienz = Pop-Art, Schwaz = Gauß,
-Hall = Histogrammausgleich, Imst = Schärfen, Reutte = Himmel ersetzen, Kitzbühel = Vignette, Landeck = Comic).
+Hall = Histogrammausgleich, Imst = Schärfen, Reutte = Himmel ersetzen, Kitzbühel = Vignette, Landeck = Comic, Seefeld = Gamma,
+Sölden = Mosaik, Mayrhofen = Zauberstab/Region Growing).
 Beim Auflösen wird zusätzlich der Python-Code des Filters angezeigt.
 
 ## Lokal starten
