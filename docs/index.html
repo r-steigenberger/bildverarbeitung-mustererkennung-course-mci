@@ -100,7 +100,7 @@ select.btn option { color: #111; }
     <h1>Filter-Detektiv</h1>
     <p>Stellen Sie sich vor, Sie posten dieses Foto gleich in Ihre Story. Swipen Sie durch die Filter und finden Sie heraus, welche Operation aus der Vorlesung dahintersteckt.</p>
     <p>Swipen oder <kbd>←</kbd> <kbd>→</kbd> · <kbd>H</kbd> Histogramm · <kbd>Leertaste</kbd> halten = vorher · <kbd>Enter</kbd> Auflösung</p>
-    <p>Oben rechts wechseln Sie zwischen <b>Rätsel</b>, <b>Quiz</b> (zufälliger Filter, vier Antworten, Punkte zählen) und <b>Lösungen</b>. Bei „Mayrhofen“ tippen Sie ins Bild, um den Seed zu setzen.</p>
+    <p>Oben rechts wechseln Sie zwischen <b>Rätsel</b> (alle Filter der Reihe nach, Auflösung auf Knopfdruck) und <b>Quiz</b> (zufälliger Filter, vier Antworten, Punkte zählen). Bei „Mayrhofen“ tippen Sie ins Bild, um den Seed zu setzen.</p>
     <p>Ihr Foto bleibt auf Ihrem Gerät. Es wird nichts hochgeladen.</p>
   </aside>
 
@@ -109,7 +109,7 @@ select.btn option { color: #111; }
     <div class="top">
       <label class="btn" for="file">Eigenes Foto<input id="file" type="file" accept="image/*" hidden></label>
       <select class="btn" id="sample" aria-label="Beispielbild"></select>
-      <button class="btn" id="mode" aria-pressed="true" title="Modus wechseln: Rätsel, Quiz, Lösungen">Rätsel</button>
+      <button class="btn" id="mode" aria-pressed="true" title="Modus wechseln: Rätsel oder Quiz">Rätsel</button>
     </div>
     <div class="hist" id="hist" hidden><canvas id="hc"></canvas><div class="leg">vorher · <b>nachher</b></div></div>
     <div class="name" id="name"></div>
@@ -292,7 +292,7 @@ const FILTER = [
 ];
 
 /* ---------- Zustand ---------- */
-const MODI = ["Rätsel", "Quiz", "Lösungen"];
+const MODI = ["Rätsel", "Quiz"];
 const st = { idx: 0, src: null, w: 0, h: 0, modus: 0, showHist: false, vorher: false, sheet: false, aufgeloest: new Set(), param: {}, opt: {},
   seed: [0.5, 0.5], eigenes: false, sample: 0, rect: null,
   q: { nr: 0, idx: 1, param: 0, opt: 0, wahl: null, antworten: [], punkte: 0, verlauf: [], pos: -1 } };
@@ -402,7 +402,7 @@ function neueFrage() {
 
 function drawSheet() {
   if (quiz()) return quizSheet();
-  const f = FILTER[st.idx], sh = $("sheet"), offen = st.modus === 2 || st.aufgeloest.has(st.idx) || st.idx === 0;
+  const f = FILTER[st.idx], sh = $("sheet"), offen = st.aufgeloest.has(st.idx) || st.idx === 0;
   if (!offen) { sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
       <span class="frage">Filter „${f.name}“: Welche Operation steckt dahinter?</span>
       <p class="app">Tipp: Histogramm einschalten und „Vorher“ gedrückt halten.</p>
@@ -433,7 +433,7 @@ function go(d) {
 $("prev").onclick = () => go(-1); $("next").onclick = () => go(1);
 $("info").onclick = () => toggleSheet(!st.sheet);
 $("hbtn").onclick = () => { st.showHist = !st.showHist; $("hbtn").setAttribute("aria-pressed", st.showHist); $("hist").hidden = !st.showHist; render(false); };
-$("mode").onclick = e => { e.currentTarget.blur(); st.modus = (st.modus + 1) % MODI.length; $("mode").textContent = MODI[st.modus]; $("mode").setAttribute("aria-pressed", st.modus < 2);
+$("mode").onclick = e => { e.currentTarget.blur(); st.modus = (st.modus + 1) % MODI.length; $("mode").textContent = MODI[st.modus]; 
   if (quiz()) { Object.assign(st.q, { nr: 0, punkte: 0, verlauf: [], pos: -1, idx: 1 }); neueFrage(); } else { st.idx = 0; st.sheet = false; $("sheet").hidden = true; render(true); } };
 const hold = on => { st.vorher = on; render(true); };
 $("vorher").addEventListener("pointerdown", e => { e.preventDefault(); hold(true); });
