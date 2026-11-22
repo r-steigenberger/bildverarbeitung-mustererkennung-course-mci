@@ -182,6 +182,19 @@ function kmeans(src, k) {                         // k-Means auf einer Stichprob
     o[4*i] = m[bi][0]; o[4*i+1] = m[bi][1]; o[4*i+2] = m[bi][2]; o[4*i+3] = 255; }
   return o; }
 
+function regionGrowing(g, w, h, sx, sy, t) {      // ab Seed über 8er-Nachbarschaft, Kriterium |r_p − r_Seed| ≤ t
+  const r0 = g[sy*w+sx], region = new Uint8Array(w*h), stack = [sy*w+sx]; region[sy*w+sx] = 1; let n = 1;
+  while (stack.length) { const p = stack.pop(), x = p % w, y = (p - x) / w;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x+dx, yy = y+dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+      const q = yy*w+xx; if (!region[q] && Math.abs(g[q] - r0) <= t) { region[q] = 1; n++; stack.push(q); } } }
+  return { region, anteil: n / (w*h) }; }
+function guterSeed(t) {                            // Quiz: Seed suchen, dessen Region gut sichtbar ist (ca. 15–60 % des Bildes)
+  const g = cache("gray1", () => blur1(gray(st.src), st.w, st.h, 1)); let best = [0.5, 0.5], bestWert = Infinity;
+  for (let j = 1; j <= 5; j++) for (let i = 1; i <= 5; i++) { const u = i / 6, v = j / 6;
+    const a = regionGrowing(g, st.w, st.h, Math.round(u * (st.w-1)), Math.round(v * (st.h-1)), t).anteil, wert = Math.abs(a - 0.35);
+    if (wert < bestWert) { bestWert = wert; best = [u, v]; } }
+  return best; }
+
 /* ---------- Filter: Ortsnamen wie im Foliensatz ---------- */
 const FILTER = [
   { name: "Normal", op: "Original", vl: "", text: "Das unbearbeitete Foto. Swipen Sie nach links, um die Filter durchzugehen.", formel: "s = r", app: "", run: (s) => s },
@@ -269,10 +282,7 @@ const FILTER = [
     formel: "Pixel p kommt dazu, wenn |r_p − r_Seed| ≤ t  (8er-Nachbarschaft)", app: "Lightroom „Bereich auswählen“ · Photoshop „Zauberstab“ · Color-Splash-Filter",
     p: { key: "t", min: 2, max: 80, step: 1, val: 20, quiz: [[15, 30]] },
     run: (s, w, h, t) => { const g = cache("gray1", () => blur1(gray(s), w, h, 1)), sx = Math.round(st.seed[0] * (w-1)), sy = Math.round(st.seed[1] * (h-1));
-      const r0 = g[sy*w+sx], in_ = new Uint8Array(w*h), stack = [sy*w+sx]; in_[sy*w+sx] = 1;
-      while (stack.length) { const p = stack.pop(), x = p % w, y = (p - x) / w;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x+dx, yy = y+dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-          const q = yy*w+xx; if (!in_[q] && Math.abs(g[q] - r0) <= t) { in_[q] = 1; stack.push(q); } } }
+      const in_ = regionGrowing(g, w, h, sx, sy, t).region;
       const o = new Uint8ClampedArray(s.length);
       for (let i = 0; i < w*h; i++) { if (in_[i]) { o[4*i] = s[4*i]; o[4*i+1] = s[4*i+1]; o[4*i+2] = s[4*i+2]; }
         else { const v = 0.6 * (0.299*s[4*i] + 0.587*s[4*i+1] + 0.114*s[4*i+2]); o[4*i] = o[4*i+1] = o[4*i+2] = v; } o[4*i+3] = 255; }
@@ -285,7 +295,7 @@ const FILTER = [
 const MODI = ["Rätsel", "Quiz", "Lösungen"];
 const st = { idx: 0, src: null, w: 0, h: 0, modus: 0, showHist: false, vorher: false, sheet: false, aufgeloest: new Set(), param: {}, opt: {},
   seed: [0.5, 0.5], eigenes: false, sample: 0, rect: null,
-  q: { nr: 0, idx: 1, param: 0, opt: 0, wahl: null, antworten: [], punkte: 0 } };
+  q: { nr: 0, idx: 1, param: 0, opt: 0, wahl: null, antworten: [], punkte: 0, verlauf: [], pos: -1 } };
 const quiz = () => st.modus === 1;
 const parOf = f => quiz() ? st.q.param : st.param[f.name];
 const optOf = f => quiz() ? st.q.opt : (st.opt[f.name] ?? 0);
@@ -324,6 +334,8 @@ function render(newName) {
   const sc = Math.min(W / st.w, (H * 0.78) / st.h), dw = st.w * sc, dh = st.h * sc;
   vctx.imageSmoothingQuality = "high"; vctx.drawImage(shown, (W - dw) / 2, (H - dh) / 2, dw, dh);
   st.rect = { x: (W - dw) / 2 / dpr, y: (H - dh) / 2 / dpr, w: dw / dpr, h: dh / dpr };
+  $("info").textContent = quiz() ? (st.sheet ? "Frage schließen" : "Frage öffnen") : "Was ist das?";
+  $("prev").hidden = quiz() && st.q.pos <= 0;
   $("dots").innerHTML = quiz() ? "" : FILTER.map((_, i) => `<i class="${i === st.idx ? "on" : ""}"></i>`).join("");
   if (newName) { const nm = $("name"); nm.classList.remove("fade");
     nm.innerHTML = (quiz() ? `Quiz ${st.q.nr}<small>Welche Operation?</small>` : f.name) + (st.vorher ? "<small>vorher</small>" : "");
@@ -350,30 +362,40 @@ function quizSheet() {
   const richtig = fertig && FILTER[q.antworten[q.wahl]].op === f.op;
   sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
     <span class="frage">Quiz ${q.nr}: Welche Operation wurde angewendet?</span>
-    <p class="app">Punkte: ${q.punkte} von ${q.nr - (fertig ? 0 : 1)} · Tipp: Histogramm und „Vorher“</p>
+    <p class="app">Punkte: ${q.punkte} von ${q.verlauf.filter(v => v.wahl !== null).length} · Tipp: Histogramm und „Vorher“</p>
     <div style="display:flex;flex-direction:column;gap:6px">${knoepfe}</div>
     ${fertig ? `<p><b>${richtig ? "Richtig!" : "Leider nicht."}</b> Das war <b>${f.name} = ${f.op}</b>${f.vl ? ` (${f.vl})` : ""}.</p>
       <div class="formel">${f.formel}</div>
       ${f.p ? `<p class="app">Hier mit ${f.p.key} = ${q.param}${f.opt ? ", " + f.opt.werte[q.opt] : ""}</p>` : ""}
-      <button class="btn primary" id="weiter">Nächste Frage ›</button>` : ""}`;
+      <div class="row" style="justify-content:flex-start">${q.pos > 0 ? `<button class="btn" id="zurueck">‹ Vorherige</button>` : ""}<button class="btn primary" id="weiter">Nächste Frage ›</button></div>` : ""}`;
   sh.querySelectorAll(".antwort").forEach(b => b.onclick = () => antworten(+b.dataset.i));
-  if (fertig) $("weiter").onclick = () => neueFrage();
+  if (fertig) { $("weiter").onclick = () => go(1); if ($("zurueck")) $("zurueck").onclick = () => go(-1); }
   $("x").onclick = () => toggleSheet(false); }
 
 function antworten(i) { const q = st.q; if (q.wahl !== null || i >= q.antworten.length) return;
-  q.wahl = i; if (FILTER[q.antworten[i]].op === FILTER[st.idx].op) q.punkte++; drawSheet(); }
+  q.wahl = i; q.verlauf[q.pos].wahl = i; if (FILTER[q.antworten[i]].op === FILTER[st.idx].op) q.punkte++; drawSheet(); }
+
+function zeigeFrage(pos) {                          // Frage aus dem Verlauf wieder anzeigen (Zurück-Pfeil)
+  const q = st.q, v = q.verlauf[pos]; q.pos = pos;
+  const weiter = () => { Object.assign(q, { nr: pos + 1, idx: v.idx, param: v.param, opt: v.opt, antworten: v.antworten, wahl: v.wahl });
+    st.idx = v.idx; st.seed = v.seed; st.sheet = true; $("sheet").hidden = false; render(true); };
+  if (!st.eigenes && v.sample !== st.sample) { st.sample = v.sample; $("sample").value = v.sample; loadImage(SAMPLES[v.sample][1], weiter); }
+  else weiter(); }
 
 function neueFrage() {
   const q = st.q, kandidaten = FILTER.map((_, i) => i).filter(i => i > 0 && i !== q.idx);
   const idx = kandidaten[Math.floor(Math.random() * kandidaten.length)], f = FILTER[idx];
   const weiter = () => {
-    q.nr++; q.idx = idx; q.wahl = null; st.idx = idx; st.seed = [0.5, 0.5];
+    q.idx = idx; q.wahl = null; st.idx = idx;
     if (f.p) { if (f.p.val === null) q.param = Math.max(0, Math.min(255, otsu(cache("gray", () => gray(st.src))) + Math.round(Math.random() * 30 - 15)));
       else { const b = f.p.quiz[Math.floor(Math.random() * f.p.quiz.length)], s = f.p.step;
         q.param = +(Math.round((b[0] + Math.random() * (b[1] - b[0])) / s) * s).toFixed(2); } }
     q.opt = f.opt ? Math.floor(Math.random() * f.opt.werte.length) : 0;
     const andere = [...new Set(FILTER.slice(1).map(g => g.op))].filter(o => o !== f.op).sort(() => Math.random() - 0.5).slice(0, 3);
     q.antworten = [f.op, ...andere].sort(() => Math.random() - 0.5).map(o => FILTER.findIndex(g => g.op === o));
+    st.seed = f.name === "Mayrhofen" ? guterSeed(q.param) : [0.5, 0.5];
+    q.verlauf.push({ idx, param: q.param, opt: q.opt, antworten: q.antworten, wahl: null, sample: st.sample, seed: st.seed });
+    q.pos = q.verlauf.length - 1; q.nr = q.pos + 1;
     st.sheet = true; $("sheet").hidden = false; render(true); };
   if (!st.eigenes && SAMPLES.length > 1) { let k; do { k = Math.floor(Math.random() * SAMPLES.length); } while (k === st.sample);
     st.sample = k; $("sample").value = k; loadImage(SAMPLES[k][1], weiter); } else weiter(); }
@@ -399,15 +421,20 @@ function drawSheet() {
       cancelAnimationFrame(raf); raf = requestAnimationFrame(() => render(false)); }; } }
   $("x").onclick = () => toggleSheet(false); }
 
-function toggleSheet(on) { st.sheet = on; $("sheet").hidden = !on; if (on) drawSheet(); }
-function go(d) { if (quiz()) return neueFrage(); st.idx = (st.idx + d + FILTER.length) % FILTER.length; render(true); }
+function toggleSheet(on) { st.sheet = on; $("sheet").hidden = !on; if (on) drawSheet();
+  if (quiz()) $("info").textContent = on ? "Frage schließen" : "Frage öffnen"; }
+function go(d) {
+  if (quiz()) { const q = st.q;
+    if (d < 0) return q.pos > 0 ? zeigeFrage(q.pos - 1) : undefined;
+    return q.pos < q.verlauf.length - 1 ? zeigeFrage(q.pos + 1) : neueFrage(); }
+  st.idx = (st.idx + d + FILTER.length) % FILTER.length; render(true); }
 
 /* ---------- Bedienung ---------- */
 $("prev").onclick = () => go(-1); $("next").onclick = () => go(1);
 $("info").onclick = () => toggleSheet(!st.sheet);
 $("hbtn").onclick = () => { st.showHist = !st.showHist; $("hbtn").setAttribute("aria-pressed", st.showHist); $("hist").hidden = !st.showHist; render(false); };
 $("mode").onclick = e => { e.currentTarget.blur(); st.modus = (st.modus + 1) % MODI.length; $("mode").textContent = MODI[st.modus]; $("mode").setAttribute("aria-pressed", st.modus < 2);
-  if (quiz()) { st.q.nr = 0; st.q.punkte = 0; neueFrage(); } else { st.idx = 0; st.sheet = false; $("sheet").hidden = true; render(true); } };
+  if (quiz()) { Object.assign(st.q, { nr: 0, punkte: 0, verlauf: [], pos: -1, idx: 1 }); neueFrage(); } else { st.idx = 0; st.sheet = false; $("sheet").hidden = true; render(true); } };
 const hold = on => { st.vorher = on; render(true); };
 $("vorher").addEventListener("pointerdown", e => { e.preventDefault(); hold(true); });
 ["pointerup", "pointerleave", "pointercancel"].forEach(ev => $("vorher").addEventListener(ev, () => st.vorher && hold(false)));
@@ -427,7 +454,7 @@ document.addEventListener("keydown", e => {
   if (quiz() && st.sheet && "1234".includes(e.key)) return antworten(+e.key - 1);
   if (e.key === "ArrowRight") go(1); else if (e.key === "ArrowLeft") go(-1);
   else if (e.key === "h" || e.key === "H") $("hbtn").click();
-  else if (e.key === "Enter") { if (!st.sheet) toggleSheet(true); else if (quiz()) { if (st.q.wahl !== null) neueFrage(); }
+  else if (e.key === "Enter") { if (!st.sheet) toggleSheet(true); else if (quiz()) { if (st.q.wahl !== null) go(1); }
     else if (!st.aufgeloest.has(st.idx) && st.modus === 0) { st.aufgeloest.add(st.idx); drawSheet(); } }
   else if (e.key === " " && !e.repeat) { e.preventDefault(); hold(true); } });
 document.addEventListener("keyup", e => { if (e.key === " ") hold(false); });
