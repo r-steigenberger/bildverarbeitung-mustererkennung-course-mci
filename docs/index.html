@@ -292,7 +292,7 @@ const FILTER = [
 ];
 
 /* ---------- Zustand ---------- */
-const FRAGEN = 10;                                 // Anzahl Fragen pro Quiz
+const FRAGEN = FILTER.length - 1;                  // jeder Filter (ohne „Normal“) kommt genau einmal dran
 const MODI = ["Rätsel", "Quiz"];
 const st = { idx: 0, src: null, w: 0, h: 0, modus: 0, showHist: false, vorher: false, sheet: false, aufgeloest: new Set(), param: {}, opt: {},
   seed: [0.5, 0.5], eigenes: false, sample: 0, rect: null,
@@ -382,7 +382,7 @@ function ergebnis() {                                // nach der letzten Frage: 
     return `<p style="font-size:14px">${ok ? "✅" : "❌"} ${i + 1}. ${f.name} = ${f.op}${f.vl ? ` <span class="app">(${f.vl})</span>` : ""}</p>`; }).join("");
   sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
     <h2>${q.punkte} von ${FRAGEN} richtig</h2>
-    <p class="app">${q.punkte >= 8 ? "Sehr gut, Sie sind bereit für die Klausur!" : q.punkte >= 5 ? "Gut! Schauen Sie sich die ❌-Filter noch einmal im Rätsel-Modus an." : "Gehen Sie die Filter noch einmal im Rätsel-Modus durch und versuchen Sie es dann erneut."}</p>
+    <p class="app">${q.punkte >= 0.8 * FRAGEN ? "Sehr gut, Sie sind bereit für die Klausur!" : q.punkte >= 0.5 * FRAGEN ? "Gut! Schauen Sie sich die ❌-Filter noch einmal im Rätsel-Modus an." : "Gehen Sie die Filter noch einmal im Rätsel-Modus durch und versuchen Sie es dann erneut."}</p>
     <div style="display:flex;flex-direction:column;gap:2px;max-height:40vh;overflow-y:auto">${zeilen}</div>
     <button class="btn primary" id="neu">Neues Quiz</button>`;
   st.sheet = true; sh.hidden = false; $("prev").hidden = true; $("info").textContent = "Ergebnis schließen";
