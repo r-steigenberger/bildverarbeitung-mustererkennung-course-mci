@@ -186,8 +186,8 @@ const FILTER = [
   { name: "Normal", op: "Original", vl: "", text: "Das unbearbeitete Foto. Swipen Sie nach links, um die Filter durchzugehen.", formel: "s = r", app: "", run: (s) => s },
   { name: "Innsbruck", op: "Fade (Tonwertkurve)", vl: "VL 3 · Punktoperation",
     text: "Jedes Pixel wird für sich umgerechnet. Schwarz wird zu dunklem Grau, der Kontrast sinkt: der Matte-Look.",
-    formel: "s = b + 0,7 · r", app: "Instagram „Fade“ · Lightroom Gradationskurve, linken Endpunkt anheben",
-    p: { key: "b", min: 0, max: 120, step: 1, val: 60 },
+    formel: "s = 0,7 · r + c  (Stauchung + Verschiebung)", app: "Instagram „Fade“ · Lightroom Gradationskurve, linken Endpunkt anheben",
+    p: { key: "c", min: 0, max: 120, step: 1, val: 60 },
     run: (s, w, h, b) => { const o = new Uint8ClampedArray(s.length); for (let i = 0; i < s.length; i++) o[i] = i % 4 === 3 ? 255 : b + 0.7 * s[i]; return o; } },
   { name: "Kufstein", op: "Skizze (Sobel + Negativ)", vl: "VL 6 + VL 3",
     text: "Der Gradientenbetrag G ist an Kanten groß. Das Negativ macht Kanten dunkel und flache Flächen weiß.",
@@ -207,13 +207,13 @@ const FILTER = [
     run: (s, w, h, sg) => cache("blur" + sg, () => { const c = channels(s); return toRGBA(c.map(ch => blur1(ch, w, h, sg)), w*h); }) },
   { name: "Hall", op: "Histogrammausgleich", vl: "VL 3 · Histogramm",
     text: "Das kumulierte Histogramm dient als Tonwertkurve. Die Helligkeiten werden über 0 … 255 verteilt, kleine Unterschiede werden größer.",
-    formel: "s = (L−1) · Σ p(rⱼ),  j = 0 … r", app: "„Auto“-Kontrast, Instagram „Lux“ (ähnliches Prinzip)",
+    formel: "s = round((L−1) · cdf(r))", app: "„Auto“-Kontrast, Instagram „Lux“ (ähnliches Prinzip)",
     run: (s, w, h) => { const g = gray(s), n = g.length, hi = new Float64Array(L); g.forEach(v => hi[Math.round(v)]++);
-      const T = new Float32Array(L); let c = 0; for (let i = 0; i < L; i++) { c += hi[i]; T[i] = (L-1) * c / n; }
+      const T = new Float32Array(L); let c = 0; for (let i = 0; i < L; i++) { c += hi[i]; T[i] = Math.round((L-1) * c / n); }
       const o = new Uint8ClampedArray(s.length);
       for (let i = 0; i < n; i++) { const d = T[Math.round(g[i])] - g[i]; o[4*i] = s[4*i] + d; o[4*i+1] = s[4*i+1] + d; o[4*i+2] = s[4*i+2] + d; o[4*i+3] = 255; }
       return o; } },
-  { name: "Imst", op: "Schärfen (Unsharp Masking)", vl: "VL 4 + VL 6",
+  { name: "Imst", op: "Schärfen (Unsharp Masking)", vl: "VL 4 · Faltung",
     text: "Detailbild = Original minus geglättetes Bild. Mit Faktor k verstärkt wieder addiert, werden Kanten betont.",
     formel: "g = f + k · (f − Gauß(f))", app: "Schärfen, Struktur, Textur, Klarheit",
     p: { key: "k", min: 0, max: 5, step: 0.1, val: 1.5 },

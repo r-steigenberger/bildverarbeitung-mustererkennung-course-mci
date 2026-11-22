@@ -25,9 +25,9 @@ def normal(img, p):
     return img
 
 
-def innsbruck(img, b):                                # Fade: s = b + 0,7 · r
+def innsbruck(img, c):                                # Fade: s = 0,7 · r + c
     f = img.astype(float)
-    return bild(b + 0.7 * f)
+    return bild(0.7 * f + c)
 
 
 def kufstein(img, faktor):                            # Skizze: Sobel-Betrag, dann Negativ
@@ -42,7 +42,7 @@ def kufstein(img, faktor):                            # Skizze: Sobel-Betrag, da
 def lienz(img, k):                                    # Pop-Art: k-Means mit k Farben
     z = img.reshape(-1, 3).astype(np.float32)          # ein Pixel = eine Zeile (R, G, B)
     kriterium = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.5)
-    _, cluster, m = cv2.kmeans(z, k, None, kriterium, 3, cv2.KMEANS_PP_CENTERS)
+    _, cluster, m = cv2.kmeans(z, k, None, kriterium, 5, cv2.KMEANS_RANDOM_CENTERS)
     return bild(np.reshape(m[cluster.ravel()], img.shape))
 
 
@@ -50,9 +50,12 @@ def schwaz(img, sigma):                               # Weichzeichner: Gauß-Fil
     return cv2.GaussianBlur(img, (0, 0), sigma)
 
 
-def hall(img, p):                                     # Histogrammausgleich der Helligkeit
+def hall(img, p):                                     # Histogrammausgleich der Helligkeit (wie VL 3)
     ycc = cv2.cvtColor(img, cv2.COLOR_RGB2YCrCb)
-    ycc[:, :, 0] = cv2.equalizeHist(ycc[:, :, 0])
+    r = ycc[:, :, 0]
+    cdf = np.cumsum(np.bincount(r.ravel(), minlength=L)) / r.size
+    T = np.round((L-1) * cdf).astype(np.uint8)          # s = round((L−1) · cdf(r))
+    ycc[:, :, 0] = T[r]
     return cv2.cvtColor(ycc, cv2.COLOR_YCrCb2RGB)
 
 
@@ -92,7 +95,7 @@ FILTER = [
     ("Normal", normal, "Original", "", "Das unbearbeitete Foto. Blättern Sie mit ▶ durch die Filter.", r"s = r", "", None),
     ("Innsbruck", innsbruck, "Fade (Tonwertkurve)", "VL 3 · Punktoperation",
      "Jedes Pixel wird für sich umgerechnet. Schwarz wird zu dunklem Grau, der Kontrast sinkt.",
-     r"s = b + 0{,}7 \cdot r", "Instagram „Fade“ · Lightroom: Gradationskurve, linken Endpunkt anheben", ("b", 0, 120, 60, 1)),
+     r"s = 0{,}7 \cdot r + c", "Instagram „Fade“ · Lightroom: Gradationskurve, linken Endpunkt anheben", ("c", 0, 120, 60, 1)),
     ("Kufstein", kufstein, "Skizze (Sobel + Negativ)", "VL 6 + VL 3",
      "Der Gradientenbetrag G ist an Kanten groß. Das Negativ macht Kanten dunkel und flache Flächen weiß.",
      r"G = \sqrt{G_x^2 + G_y^2}, \quad s = (L-1) - f \cdot G", "Skizzenfilter · Photoshop „Konturen finden“", ("f", 0.3, 3.0, 1.0, 0.1)),
@@ -104,8 +107,8 @@ FILTER = [
      r"g = h_\sigma * f", "Rauschreduzierung, Weichzeichner, Tilt-Shift", ("σ", 0.5, 8.0, 2.0, 0.5)),
     ("Hall", hall, "Histogrammausgleich", "VL 3 · Histogramm",
      "Das kumulierte Histogramm dient als Tonwertkurve. Die Helligkeiten werden über 0 … 255 verteilt.",
-     r"s_k = (L-1)\sum_{j=0}^{k} p_r(r_j)", "„Auto“-Kontrast, Instagram „Lux“ (ähnliches Prinzip)", None),
-    ("Imst", imst, "Schärfen (Unsharp Masking)", "VL 4 + VL 6",
+     r"s = \mathrm{round}\big((L-1) \cdot \mathrm{cdf}(r)\big)", "„Auto“-Kontrast, Instagram „Lux“ (ähnliches Prinzip)", None),
+    ("Imst", imst, "Schärfen (Unsharp Masking)", "VL 4 · Faltung",
      "Detailbild = Original minus geglättetes Bild. Mit Faktor k verstärkt wieder addiert, werden Kanten betont.",
      r"g = f + k \cdot (f - \mathrm{Gauß}(f))", "Schärfen, Struktur, Textur, Klarheit", ("k", 0.0, 5.0, 1.5, 0.1)),
     ("Reutte", reutte, "Himmel ersetzen (Schwellwert)", "VL 5 · Segmentierung",
