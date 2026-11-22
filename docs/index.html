@@ -292,6 +292,7 @@ const FILTER = [
 ];
 
 /* ---------- Zustand ---------- */
+const FRAGEN = 10;                                 // Anzahl Fragen pro Quiz
 const MODI = ["Rätsel", "Quiz"];
 const st = { idx: 0, src: null, w: 0, h: 0, modus: 0, showHist: false, vorher: false, sheet: false, aufgeloest: new Set(), param: {}, opt: {},
   seed: [0.5, 0.5], eigenes: false, sample: 0, rect: null,
@@ -338,7 +339,7 @@ function render(newName) {
   $("prev").hidden = quiz() && st.q.pos <= 0;
   $("dots").innerHTML = quiz() ? "" : FILTER.map((_, i) => `<i class="${i === st.idx ? "on" : ""}"></i>`).join("");
   if (newName) { const nm = $("name"); nm.classList.remove("fade");
-    nm.innerHTML = (quiz() ? `Quiz ${st.q.nr}<small>Welche Operation?</small>` : f.name) + (st.vorher ? "<small>vorher</small>" : "");
+    nm.innerHTML = (quiz() ? `Frage ${st.q.nr} von ${FRAGEN}<small>Welche Operation?</small>` : f.name) + (st.vorher ? "<small>vorher</small>" : "");
     void nm.offsetWidth; nm.classList.add("fade"); }
   if (st.showHist) drawHist(out);
   if (st.sheet) drawSheet(); }
@@ -361,19 +362,32 @@ function quizSheet() {
     return `<button class="btn antwort" data-i="${i}" style="justify-content:flex-start;${stil}" ${fertig ? "disabled" : ""}>${i + 1}  ${FILTER[a].op}</button>`; }).join("");
   const richtig = fertig && FILTER[q.antworten[q.wahl]].op === f.op;
   sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
-    <span class="frage">Quiz ${q.nr}: Welche Operation wurde angewendet?</span>
+    <span class="frage">Frage ${q.nr} von ${FRAGEN}: Welche Operation wurde angewendet?</span>
     <p class="app">Punkte: ${q.punkte} von ${q.verlauf.filter(v => v.wahl !== null).length} · Tipp: Histogramm und „Vorher“</p>
     <div style="display:flex;flex-direction:column;gap:6px">${knoepfe}</div>
     ${fertig ? `<p><b>${richtig ? "Richtig!" : "Leider nicht."}</b> Das war <b>${f.name} = ${f.op}</b>${f.vl ? ` (${f.vl})` : ""}.</p>
       <div class="formel">${f.formel}</div>
       ${f.p ? `<p class="app">Hier mit ${f.p.key} = ${q.param}${f.opt ? ", " + f.opt.werte[q.opt] : ""}</p>` : ""}
-      <div class="row" style="justify-content:flex-start">${q.pos > 0 ? `<button class="btn" id="zurueck">‹ Vorherige</button>` : ""}<button class="btn primary" id="weiter">Nächste Frage ›</button></div>` : ""}`;
+      <div class="row" style="justify-content:flex-start">${q.pos > 0 ? `<button class="btn" id="zurueck">‹ Vorherige</button>` : ""}<button class="btn primary" id="weiter">${q.pos === FRAGEN - 1 ? "Ergebnis ›" : "Nächste Frage ›"}</button></div>` : ""}`;
   sh.querySelectorAll(".antwort").forEach(b => b.onclick = () => antworten(+b.dataset.i));
   if (fertig) { $("weiter").onclick = () => go(1); if ($("zurueck")) $("zurueck").onclick = () => go(-1); }
   $("x").onclick = () => toggleSheet(false); }
 
 function antworten(i) { const q = st.q; if (q.wahl !== null || i >= q.antworten.length) return;
   q.wahl = i; q.verlauf[q.pos].wahl = i; if (FILTER[q.antworten[i]].op === FILTER[st.idx].op) q.punkte++; drawSheet(); }
+
+function ergebnis() {                                // nach der letzten Frage: Auswertung
+  const q = st.q, sh = $("sheet"); q.pos = FRAGEN;
+  const zeilen = q.verlauf.map((v, i) => { const f = FILTER[v.idx], ok = v.wahl !== null && FILTER[v.antworten[v.wahl]].op === f.op;
+    return `<p style="font-size:14px">${ok ? "✅" : "❌"} ${i + 1}. ${f.name} = ${f.op}${f.vl ? ` <span class="app">(${f.vl})</span>` : ""}</p>`; }).join("");
+  sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
+    <h2>${q.punkte} von ${FRAGEN} richtig</h2>
+    <p class="app">${q.punkte >= 8 ? "Sehr gut, Sie sind bereit für die Klausur!" : q.punkte >= 5 ? "Gut! Schauen Sie sich die ❌-Filter noch einmal im Rätsel-Modus an." : "Gehen Sie die Filter noch einmal im Rätsel-Modus durch und versuchen Sie es dann erneut."}</p>
+    <div style="display:flex;flex-direction:column;gap:2px;max-height:40vh;overflow-y:auto">${zeilen}</div>
+    <button class="btn primary" id="neu">Neues Quiz</button>`;
+  st.sheet = true; sh.hidden = false; $("prev").hidden = true; $("info").textContent = "Ergebnis schließen";
+  $("neu").onclick = () => { Object.assign(q, { nr: 0, punkte: 0, verlauf: [], pos: -1, idx: 1 }); neueFrage(); };
+  $("x").onclick = () => toggleSheet(false); }
 
 function zeigeFrage(pos) {                          // Frage aus dem Verlauf wieder anzeigen (Zurück-Pfeil)
   const q = st.q, v = q.verlauf[pos]; q.pos = pos;
@@ -383,7 +397,8 @@ function zeigeFrage(pos) {                          // Frage aus dem Verlauf wie
   else weiter(); }
 
 function neueFrage() {
-  const q = st.q, kandidaten = FILTER.map((_, i) => i).filter(i => i > 0 && i !== q.idx);
+  const q = st.q, benutzt = q.verlauf.map(v => v.idx),
+    kandidaten = FILTER.map((_, i) => i).filter(i => i > 0 && !benutzt.includes(i));   // jeder Filter höchstens einmal
   const idx = kandidaten[Math.floor(Math.random() * kandidaten.length)], f = FILTER[idx];
   const weiter = () => {
     q.idx = idx; q.wahl = null; st.idx = idx;
@@ -401,7 +416,7 @@ function neueFrage() {
     st.sample = k; $("sample").value = k; loadImage(SAMPLES[k][1], weiter); } else weiter(); }
 
 function drawSheet() {
-  if (quiz()) return quizSheet();
+  if (quiz()) return st.q.pos >= FRAGEN ? ergebnis() : quizSheet();
   const f = FILTER[st.idx], sh = $("sheet"), offen = st.aufgeloest.has(st.idx) || st.idx === 0;
   if (!offen) { sh.innerHTML = `<button class="btn close" id="x" aria-label="Schließen">✕</button>
       <span class="frage">Filter „${f.name}“: Welche Operation steckt dahinter?</span>
@@ -422,11 +437,13 @@ function drawSheet() {
   $("x").onclick = () => toggleSheet(false); }
 
 function toggleSheet(on) { st.sheet = on; $("sheet").hidden = !on; if (on) drawSheet();
-  if (quiz()) $("info").textContent = on ? "Frage schließen" : "Frage öffnen"; }
+  if (quiz()) $("info").textContent = st.q.pos >= FRAGEN ? (on ? "Ergebnis schließen" : "Ergebnis") : on ? "Frage schließen" : "Frage öffnen"; }
 function go(d) {
   if (quiz()) { const q = st.q;
-    if (d < 0) return q.pos > 0 ? zeigeFrage(q.pos - 1) : undefined;
-    return q.pos < q.verlauf.length - 1 ? zeigeFrage(q.pos + 1) : neueFrage(); }
+    if (d < 0) return q.pos > 0 ? zeigeFrage(Math.min(q.pos, FRAGEN) - 1) : undefined;
+    if (q.pos >= FRAGEN) return;
+    if (q.pos < q.verlauf.length - 1) return zeigeFrage(q.pos + 1);
+    return q.verlauf.length >= FRAGEN ? ergebnis() : neueFrage(); }
   st.idx = (st.idx + d + FILTER.length) % FILTER.length; render(true); }
 
 /* ---------- Bedienung ---------- */
@@ -454,7 +471,7 @@ document.addEventListener("keydown", e => {
   if (quiz() && st.sheet && "1234".includes(e.key)) return antworten(+e.key - 1);
   if (e.key === "ArrowRight") go(1); else if (e.key === "ArrowLeft") go(-1);
   else if (e.key === "h" || e.key === "H") $("hbtn").click();
-  else if (e.key === "Enter") { if (!st.sheet) toggleSheet(true); else if (quiz()) { if (st.q.wahl !== null) go(1); }
+  else if (e.key === "Enter") { if (!st.sheet) toggleSheet(true); else if (quiz()) { if (st.q.pos >= FRAGEN) $("neu").click(); else if (st.q.wahl !== null) go(1); }
     else if (!st.aufgeloest.has(st.idx) && st.modus === 0) { st.aufgeloest.add(st.idx); drawSheet(); } }
   else if (e.key === " " && !e.repeat) { e.preventDefault(); hold(true); } });
 document.addEventListener("keyup", e => { if (e.key === " ") hold(false); });
